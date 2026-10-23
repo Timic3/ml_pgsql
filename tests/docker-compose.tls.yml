@@ -1,0 +1,18 @@
+# Overlay used by tests/run.sh: enables TLS on PostgreSQL with a test CA (tests/certs) and
+# makes the CA available to the MTA server for sslmode=verify-full tests.
+services:
+  postgres:
+    entrypoint:
+      - bash
+      - -c
+      - >-
+        install -o postgres -g postgres -m 600 /certs/server.key /tmp/server.key &&
+        install -o postgres -g postgres -m 644 /certs/server.crt /tmp/server.crt &&
+        exec docker-entrypoint.sh postgres -c ssl=on
+        -c ssl_cert_file=/tmp/server.crt -c ssl_key_file=/tmp/server.key
+    volumes:
+      - ./certs:/certs:ro
+  mta:
+    volumes:
+      - ./certs/ca.crt:/certs/ca.crt:ro
+      - ./certs/server.crt:/certs/server.crt:ro

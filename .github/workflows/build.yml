@@ -1,0 +1,121 @@
+name: build
+
+# Every push/PR: build ml_pgsql.so for Linux x64 and arm64, check the binary and run the
+# integration suite inside the official MTA server. The sanitizer harness is run manually
+# before a release (tests/harness/run.sh, or the "sanitizers" workflow).
+# A tag X.Y.Z or vX.Y.Z (matching MLPG_VERSION_STRING in src/module.h) also publishes a GitHub
+# release.
+
+on:
+  push:
+    branches: [master, main]
+    tags: ['v[0-9]*', '[0-9]*']
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: build + test (linux-${{ matrix.arch }})
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: x64
+            runner: ubuntu-24.04
+            platform: linux/amd64
+            out: build/release
+          - arch: arm64
+            runner: ubuntu-24.04-arm
+            platform: linux/arm64
+            out: build/arm64
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: docker/setup-buildx-action@v4
+
+      # OpenSSL and libpq are compiled from verified source tarballs; cached between runs.
+      - name: Toolchain image
+        uses: docker/build-push-action@v7
+        with:
+          context: docker
+          file: docker/build.Dockerfile
+          platforms: ${{ matrix.platform }}
+          tags: ml_pgsql-build:ci
+          load: true
+          cache-from: type=gha,scope=toolchain-${{ matrix.arch }}
+          cache-to: type=gha,mode=max,scope=toolchain-${{ matrix.arch }}
+
+      - name: Build module
+        run: ./build.sh ${{ matrix.arch }}
+        env:
+          MLPG_BUILD_IMAGE: ml_pgsql-build:ci
+
+      - name: Check binary
+        run: tools/check-binary.sh ${{ matrix.out }}/ml_pgsql.so
+
+      - name: Integration tests (official MTA server, PostgreSQL 18)
+        run: tests/run.sh
+        env:
+          MLPG_PLATFORM: ${{ matrix.platform }}
+          MLPG_ARCH: ${{ matrix.arch }}
+          MLPG_MODULE: ../${{ matrix.out }}/ml_pgsql.so
+          MLPG_PROJECT: mlpg-ci
+
+      - name: Package
+        run: tools/package.sh ${{ matrix.arch }} ml_pgsql-build:ci
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: ml_pgsql-linux-${{ matrix.arch }}
+          path: dist/*.tar.gz
+          if-no-files-found: error
+
+      - name: Upload test logs
+        if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: test-logs-linux-${{ matrix.arch }}
+          path: tests/out-test/
+          if-no-files-found: ignore
+
+  release:
+    name: publish release
+    if: startsWith(github.ref, 'refs/tags/')
+    needs: [build]
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Tag matches module version
+        run: |
+          version=$(sed -n 's/^#define MLPG_VERSION_STRING "\(.*\)"/\1/p' src/module.h)
+          if [ "$version" != "${GITHUB_REF_NAME#v}" ]; then
+            echo "::error::tag $GITHUB_REF_NAME does not match MLPG_VERSION_STRING \"$version\" in src/module.h"
+            exit 1
+          fi
+
+      - uses: actions/download-artifact@v8
+        with:
+          pattern: ml_pgsql-linux-*
+          path: dist
+          merge-multiple: true
+
+      - name: Publish
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          cd dist
+          sha256sum -- *.tar.gz > SHA256SUMS
+          gh release create "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" \
+            --title "ml_pgsql $GITHUB_REF_NAME" --generate-notes -- *.tar.gz SHA256SUMS

@@ -1,0 +1,4 @@
+Copy of vendor/lua/src from https://github.com/multitheftauto/mtasa-blue
+commit 7c0f98ddfc8826d7a8eab976b3361bdb0bfa53b2 (2026-10-23), unmodified.
+Lua 5.1 with MTA additions (mtasaowner, lua_getmainstate, pre/post call hooks, utf8 lib).
+Compiled as C, so errors are raised with _longjmp exactly like the MTA server.

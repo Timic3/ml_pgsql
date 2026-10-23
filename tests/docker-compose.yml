@@ -1,0 +1,57 @@
+# Integration test / benchmark environment.
+#   MLPG_SUITE=test  docker compose -f tests/docker-compose.yml run --rm mta
+#   MLPG_SUITE=bench docker compose -f tests/docker-compose.yml run --rm mta
+# (tests/run.sh wraps this)
+name: mlpg
+
+services:
+  postgres:
+    image: postgres:18
+    environment:
+      POSTGRES_USER: mta
+      POSTGRES_PASSWORD: mta
+      POSTGRES_DB: mta
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U mta -d mta"]
+      interval: 1s
+      timeout: 3s
+      retries: 60
+    tmpfs:
+      - /var/lib/postgresql:size=2g
+
+  # Baseline for benchmarks only: MTA's built-in dbConnect("mysql", ...).
+  mysql:
+    image: mysql:8.4
+    environment:
+      MYSQL_ROOT_PASSWORD: mta
+      MYSQL_DATABASE: mta
+      MYSQL_USER: mta
+      MYSQL_PASSWORD: mta
+    healthcheck:
+      test: ["CMD-SHELL", "mysqladmin ping -h 127.0.0.1 -umta -pmta --silent"]
+      interval: 1s
+      timeout: 3s
+      retries: 120
+    tmpfs:
+      - /var/lib/mysql:size=2g
+
+  mta:
+    build: ./mta
+    platform: ${MLPG_PLATFORM:-linux/amd64}
+    image: mlpg-mta:${MLPG_ARCH:-amd64}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      mysql:
+        condition: service_healthy
+    environment:
+      PGHOST: postgres
+    command: ["--config", "mtaserver.${MLPG_SUITE:-test}.conf"]
+    volumes:
+      - ${MLPG_MODULE:-../build/release/ml_pgsql.so}:/mta/x64/modules/ml_pgsql.so:ro
+      - ./mta/acl.xml:/mta/mods/deathmatch/acl.xml:ro
+      - ./mta/mtaserver.smoke.conf:/mta/mods/deathmatch/mtaserver.smoke.conf:ro
+      - ./mta/mtaserver.test.conf:/mta/mods/deathmatch/mtaserver.test.conf:ro
+      - ./mta/mtaserver.bench.conf:/mta/mods/deathmatch/mtaserver.bench.conf:ro
+      - ./resources:/mta/mods/deathmatch/resources:ro
+      - ${MLPG_OUT:-./out}:/mta/mods/deathmatch/logs

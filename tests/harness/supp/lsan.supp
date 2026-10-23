@@ -1,0 +1,4 @@
+# LeakSanitizer suppressions.
+# None needed: with sslmode=disable and sslmode=prefer, libpq/OpenSSL one-time allocations stay
+# reachable from their globals and are not reported. Add entries here only for genuine
+# third-party one-time allocations, with a justification per entry.

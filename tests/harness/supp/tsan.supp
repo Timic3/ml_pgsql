@@ -1,0 +1,3 @@
+# ThreadSanitizer suppressions.
+# None needed: no reports in any scenario (host, MTA Lua and module instrumented; system libpq is
+# not, so races inside libpq would be invisible rather than reported).

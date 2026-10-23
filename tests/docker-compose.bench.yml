@@ -1,0 +1,6 @@
+# Overlay used by tests/bench.sh: keeps benchmark server logs in tests/out-bench so they don't mix
+# with other suites that may be running at the same time (which write to tests/out).
+services:
+  mta:
+    volumes:
+      - ./out-bench:/mta/mods/deathmatch/logs

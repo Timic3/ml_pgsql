@@ -1,0 +1,4 @@
+<meta>
+    <info author="ml_pgsql" type="script" version="1.0" description="ml_pgsql vs built-in MySQL benchmark"/>
+    <script src="server.lua" type="server"/>
+</meta>

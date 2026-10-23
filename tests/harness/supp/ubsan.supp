@@ -1,0 +1,7 @@
+# UBSan suppressions. Only third-party code (MTA's vendored Lua 5.1), never the module.
+#
+# Lua 5.1 luaH_getnum: `cast(unsigned int, key-1)` overflows for key == INT_MIN, which happens
+# when a script uses a huge number as a table key (luaH_get's lua_number2int saturates on
+# x86). Upstream Lua 5.1 behaviour, triggered by the scenario's own table constructors
+# ({[2^40] = 1}); unrelated to ml_pgsql.
+signed-integer-overflow:luaH_getnum

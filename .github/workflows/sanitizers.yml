@@ -1,0 +1,38 @@
+name: sanitizers
+
+# The full harness matrix: every scenario (incl. stress, soak and a hanging DNS server) under
+# ASan+UBSan, TSan, valgrind and a plain build. Takes about an hour. Manual only (Actions →
+# sanitizers → Run workflow); normally run locally with tests/harness/run.sh.
+
+on:
+  workflow_dispatch:
+    inputs:
+      variants:
+        description: 'Variants (space separated): asan tsan valgrind plain'
+        default: 'asan tsan valgrind plain'
+      soak_seconds:
+        description: 'Soak scenario duration in seconds'
+        default: '120'
+
+permissions:
+  contents: read
+
+jobs:
+  harness:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 240
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Harness
+        run: tests/harness/run.sh ${{ inputs.variants || 'asan tsan valgrind plain' }}
+        env:
+          MLPG_SOAK_SECONDS: ${{ inputs.soak_seconds || '120' }}
+
+      - name: Upload harness logs
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: harness-logs
+          path: build/harness-logs/
+          if-no-files-found: ignore

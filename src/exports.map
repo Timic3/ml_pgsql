@@ -1,0 +1,11 @@
+{
+  global:
+    InitModule;
+    RegisterFunctions;
+    DoPulse;
+    ShutdownModule;
+    ResourceStopping;
+    ResourceStopped;
+  local:
+    *;
+};
