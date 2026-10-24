@@ -20,7 +20,7 @@ end
 T.run({
     { "pgVersion / connect options validation", function()
         local v, lib = pgVersion()
-        T.eq(v, "1.0.0", "module version")
+        T.eq(v, "1.0.1", "module version")
         T.ok(type(lib) == "number" and lib >= 170000, "libpq version " .. tostring(lib))
 
         db = pgConnect(CONNINFO, { applicationName = "func-main" })

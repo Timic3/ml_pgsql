@@ -12,8 +12,8 @@
 
 #define MLPG_MODULE_NAME    "PostgreSQL (ml_pgsql)"
 #define MLPG_MODULE_AUTHOR  "ml_pgsql contributors"
-#define MLPG_MODULE_VERSION 1.00f
-#define MLPG_VERSION_STRING "1.0.0"
+#define MLPG_MODULE_VERSION 1.01f
+#define MLPG_VERSION_STRING "1.0.1"
 
 namespace mlpg
 {
