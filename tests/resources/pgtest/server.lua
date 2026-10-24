@@ -170,8 +170,9 @@ test("connect: main connection and schema", function()
     check(db, "pgConnect failed: " .. tostring(err))
     DB = db
     check(tostring(db):find("pgsql-connection", 1, true), "tostring")
-    local module, libpq = pgVersion()
+    local module, libpq, tls = pgVersion()
     check(type(module) == "string" and libpq >= 170000, "pgVersion")
+    eq(tls, "OpenSSL", "pgVersion TLS library")
     local ok, err2 = pgQuerySync(DB, [==[
         DROP TABLE IF EXISTS ord, tx_test, ms_test, child_marker, drain_test, uniq;
         CREATE TABLE ord(id serial PRIMARY KEY, seq int);

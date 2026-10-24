@@ -1,7 +1,7 @@
 # Integration test / benchmark environment.
 #   MLPG_SUITE=test  docker compose -f tests/docker-compose.yml run --rm mta
 #   MLPG_SUITE=bench docker compose -f tests/docker-compose.yml run --rm mta
-# (tests/run.sh wraps this)
+# (tests/run.sh, tests/bench.sh and tests/soak.sh wrap this)
 name: mlpg
 
 services:
@@ -38,7 +38,7 @@ services:
   mta:
     build: ./mta
     platform: ${MLPG_PLATFORM:-linux/amd64}
-    image: mlpg-mta:${MLPG_ARCH:-amd64}
+    image: ${MLPG_MTA_IMAGE:-mlpg-mta:${MLPG_ARCH:-amd64}}  # MLPG_MTA_IMAGE: see tests/soak.sh SOAK_HEAPTRACK
     depends_on:
       postgres:
         condition: service_healthy
@@ -53,5 +53,6 @@ services:
       - ./mta/mtaserver.smoke.conf:/mta/mods/deathmatch/mtaserver.smoke.conf:ro
       - ./mta/mtaserver.test.conf:/mta/mods/deathmatch/mtaserver.test.conf:ro
       - ./mta/mtaserver.bench.conf:/mta/mods/deathmatch/mtaserver.bench.conf:ro
+      - ./mta/mtaserver.soak.conf:/mta/mods/deathmatch/mtaserver.soak.conf:ro
       - ./resources:/mta/mods/deathmatch/resources:ro
       - ${MLPG_OUT:-./out}:/mta/mods/deathmatch/logs

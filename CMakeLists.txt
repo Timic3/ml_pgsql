@@ -14,6 +14,8 @@ endif()
 set(PG_DEPS_PREFIX "$ENV{PG_DEPS_PREFIX}" CACHE PATH "Prefix with static libpq/OpenSSL")
 # address | thread | undefined (development only; links the system libpq dynamically)
 set(MLPG_SANITIZE "" CACHE STRING "Sanitizer to build with")
+# OFF keeps the symbol table of the static release build (same code, for heaptrack/perf)
+option(MLPG_STRIP "Strip the static release module" ON)
 
 add_library(ml_pgsql MODULE
   src/bindings.cpp
@@ -66,7 +68,10 @@ elseif(PG_DEPS_PREFIX)
   )
   # Everything static and hidden: the module cannot clash with other modules' (or the
   # server's) copies of OpenSSL/libstdc++, and needs nothing installed on the host.
-  target_link_options(ml_pgsql PRIVATE -static-libstdc++ -static-libgcc -Wl,--exclude-libs,ALL -Wl,--gc-sections -s)
+  target_link_options(ml_pgsql PRIVATE -static-libstdc++ -static-libgcc -Wl,--exclude-libs,ALL -Wl,--gc-sections)
+  if(MLPG_STRIP)
+    target_link_options(ml_pgsql PRIVATE -s)
+  endif()
 else()
   find_package(PostgreSQL REQUIRED)
   target_link_libraries(ml_pgsql PRIVATE PostgreSQL::PostgreSQL pthread dl)

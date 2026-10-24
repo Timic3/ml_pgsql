@@ -82,6 +82,13 @@ By default this blocks until the first connection is established (bounded by
 `connectTimeout`) so bad credentials are reported immediately. Pass `lazy = true` to return at
 once.
 
+**Connect once and keep the connection**, typically from the resource's start; it closes by
+itself when the resource stops. Don't call `pgConnect` per query, command or player event. Each
+call blocks the server through the TCP and TLS handshake and authentication (unless `lazy`),
+starts a thread per pooled connection, and makes PostgreSQL start a backend process. A server
+that keeps opening connections also keeps growing in memory, see
+[Memory with many short-lived connections](#behaviour-and-guarantees).
+
 | option | default | meaning |
 |---|---|---|
 | `poolSize` | `1` | Connections (one thread each), 1–64. With 1, queries run strictly in submission order, like MTA's `dbConnect`. With more, independent queries run in parallel and order is only guaranteed within one transaction. |
@@ -159,7 +166,7 @@ roundTrips, avgLatencyMs`.
 - `pgBytea(binaryString)`: encodes binary data for a `bytea` parameter. Text parameters
   cannot contain NUL bytes.
 - `PG_NULL`: SQL NULL inside table parameters. Plain `nil` works in argument lists.
-- `pgVersion() -> moduleVersion, libpqVersion`
+- `pgVersion() -> moduleVersion, libpqVersion, tlsLibrary`: `tlsLibrary` is `"OpenSSL"`
 
 ## Types
 
@@ -242,6 +249,16 @@ Tables with non-integer keys are rejected; use `toJSON` for objects.
 - **Scripts with several statements.** Parameterless SQL containing several `;`-separated
   commands is sent with the simple query protocol, so migration scripts work through `pgExec`.
   `COPY ... FROM STDIN` is rejected cleanly and the connection stays usable.
+- **Memory with many short-lived connections.** The module frees everything it allocates
+  (see [Memory soak](#memory-soak)). Even so, RSS keeps growing on a server that opens new
+  connections all the time (for example a `pgConnect` per command) when they move large values
+  (big results, `bytea` of hundreds of KB). This is glibc's allocator: once large blocks have
+  been freed, it raises its mmap and trim thresholds, and the buffers of each new connection
+  then stay cached in the per-thread malloc arenas. At one new connection per second it measured
+  about +0.6 MB/min for the whole 30-minute test. Occasional new connections, from reconnects or
+  resource restarts, add a few MB that then level off. If your server cannot avoid churning
+  connections, start it with `MALLOC_ARENA_MAX=2` or `MALLOC_MMAP_THRESHOLD_=131072` in its
+  environment: either kept RSS flat in the same test.
 
 ## Performance
 
@@ -290,8 +307,13 @@ GitHub Actions (`.github/workflows/`):
   - runs the integration suite in the official MTA server
 - **Releases**: pushing a tag `X.Y.Z` (or `vX.Y.Z`) that matches `MLPG_VERSION_STRING` in
   `src/module.h` publishes a release with both archives.
-- **`sanitizers.yml`**: the full sanitizer matrix, manual trigger only. Run it, or
-  `tests/harness/run.sh` locally, before tagging a release.
+- **`sanitizers.yml`**: the full sanitizer matrix, manual trigger only.
+
+Before tagging a release, run these manually; CI runs neither:
+1. the sanitizer harness: the `sanitizers.yml` workflow, or `tests/harness/run.sh` locally
+2. the memory soak: `tests/soak.sh` (30 minutes) on x64. Optionally also on arm64:
+   `MLPG_PLATFORM=linux/arm64 MLPG_ARCH=arm64 MLPG_MODULE=../build/arm64/ml_pgsql.so tests/soak.sh`.
+   Under emulation it uses a lower rate.
 
 ## Building
 
@@ -331,7 +353,61 @@ from verified source tarballs and linked statically.
   - a hanging DNS server
 
   All pass, with no suppressions for module code.
+- `tests/soak.sh`: memory soak of the release build in the official MTA server, see below.
 - `tests/bench.sh`: the MySQL comparison; writes `tests/bench-results.md`.
+
+### Memory soak
+
+`tests/soak.sh` (30 minutes; `--quick` for 5) runs the release `ml_pgsql.so`, with its static
+libpq and OpenSSL, inside `mta-server64` under a steady load from resource `pgsoak`, all over
+TLS. The load runs at about 2,000 operations/s:
+- callbacks, coroutine awaits and the occasional sync call
+- transactions, a third of them failing on purpose
+- 10k–20k-row results, `bytea` up to 256 KB, array parameters, and queries that error
+- pools of 1 and 4 connections, plus short-lived connections that are closed with queries in
+  flight or left to the garbage collector
+- a backend killed every 20 s, and a child resource stopped with queries in flight every 15 s
+
+Every result is checked, and all writes are counted against the database at the end.
+
+The server runs with `MALLOC_MMAP_THRESHOLD_=131072`. glibc then returns large blocks to the
+system as soon as they are freed, so RSS follows what is actually allocated. With glibc's
+defaults, every new connection (reconnects, child resources) leaves memory cached in the malloc
+arenas until RSS levels off. Over 30 minutes that is +4.5 MB after the warm-up, which fails the
+checks below although nothing leaks. `SOAK_MTA_ENV=` (empty) runs with the defaults anyway.
+
+From outside the server, every 10 s, the script reads RSS and thread count from
+`/proc/<pid>/status` and counts `/proc/<pid>/fd`. It merges these with the resource's
+Lua-side numbers (heap after a full GC, registry size, `pgStats` outstanding counts, operation
+counts) into `tests/out-soak/samples.csv`, and writes the verdict to
+`tests/out-soak/summary.txt`. The first 5 minutes (at most 20% of the run) are warm-up.
+After that the run fails if any of these hold:
+- RSS grows by more than max(4 MB, 3%), or its trend over the second half rises by more than
+  40 KB/min and is clearly above zero
+- threads or fds are not back at their baseline once every pool is closed. The baseline is
+  taken with the module loaded and no connection open, after MTA's own startup requests finish.
+- the Lua heap or registry trends upward, or a pool's outstanding count does not drain to 0
+- a result is wrong, an unexpected error is logged, the server crashes, or writes queued
+  right before `shutdown()` are lost
+
+The RSS checks catch any allocation leaked per operation: glibc's smallest block is 32 bytes,
+which at this rate is 3.8 MB/min. They also catch leaks of about 10 KB or more per new
+connection. Smaller ones need heaptrack.
+
+`SOAK_MODE=control` runs the same Lua-side churn without module calls. `SOAK_HEAPTRACK=1`
+runs the server under heaptrack. `--analyze` re-evaluates a finished run. The header of
+`tests/soak.sh` lists the remaining knobs.
+
+Findings on x64 (MTA 1.6, glibc 2.31):
+- Under heaptrack the live heap stayed flat for the whole load, and nothing left at exit came
+  from the module, libpq or OpenSSL.
+- The control run's RSS was flat.
+- With `MALLOC_MMAP_THRESHOLD_=131072`, RSS stayed within ±1 MB of 62 MB through the load and
+  fell to 57 MB once the pools closed.
+- With glibc's defaults, RSS rose 4.5 MB after the warm-up and levelled off at about 86 MB. A
+  run with a third of the reconnects and child-resource cycles ended at the same level.
+- RSS creep at high connection churn comes from glibc, see
+  [Memory with many short-lived connections](#behaviour-and-guarantees).
 
 ## Design notes
 

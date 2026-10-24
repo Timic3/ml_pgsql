@@ -1,0 +1,4 @@
+<meta>
+    <info author="ml_pgsql" type="script" version="1.0" description="ml_pgsql memory soak (tests/soak.sh)"/>
+    <script src="server.lua" type="server"/>
+</meta>

@@ -30,6 +30,7 @@
       <object name="resource.pgtest" />
       <object name="resource.pgbench" />
       <object name="resource.pgsmoke" />
+      <object name="resource.pgsoak" />
    </group>
    <group name="Console">
       <acl name="Moderator" />

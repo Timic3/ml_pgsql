@@ -834,12 +834,18 @@ namespace mlpg
             return 1;
         }
 
-        // pgVersion() -> moduleVersion, libpqVersion
+        // pgVersion() -> moduleVersion, libpqVersion, tlsLibrary ("OpenSSL", or nil when built
+        // without TLS support)
         int l_pgVersion(lua_State* L)
         {
             lua_pushstring(L, MLPG_VERSION_STRING);
             lua_pushnumber(L, PQlibVersion());
-            return 2;
+            const char* tls = PQsslAttribute(nullptr, "library");
+            if (tls)
+                lua_pushstring(L, tls);
+            else
+                lua_pushnil(L);
+            return 3;
         }
 
         int l_connGc(lua_State* L)
